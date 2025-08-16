@@ -1,0 +1,92 @@
+# Multi-stage build for Node.js backend
+FROM node:18-alpine AS base
+
+# Install dependencies for native modules
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    cairo-dev \
+    jpeg-dev \
+    pango-dev \
+    musl-dev \
+    giflib-dev \
+    pixman-dev \
+    pangomm-dev \
+    libjpeg-turbo-dev \
+    freetype-dev
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY backend/package*.json ./
+
+# Install dependencies
+FROM base AS deps
+RUN npm ci --only=production --silent
+
+# Development dependencies for building
+FROM base AS deps-dev
+RUN npm ci --silent
+
+# Build stage
+FROM deps-dev AS build
+COPY backend/ .
+RUN npm run build 2>/dev/null || echo "No build script found"
+
+# Production stage
+FROM node:18-alpine AS production
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    cairo \
+    jpeg \
+    pango \
+    musl \
+    giflib \
+    pixman \
+    pangomm \
+    libjpeg-turbo \
+    freetype \
+    dumb-init
+
+# Create app user
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S nodeuser -u 1001
+
+# Set working directory
+WORKDIR /app
+
+# Copy production dependencies
+COPY --from=deps --chown=nodeuser:nodejs /app/node_modules ./node_modules
+
+# Copy application code
+COPY --chown=nodeuser:nodejs backend/ .
+
+# Create necessary directories
+RUN mkdir -p logs uploads temp && \
+    chown -R nodeuser:nodejs logs uploads temp
+
+# Copy built application (if any)
+COPY --from=build --chown=nodeuser:nodejs /app/dist ./dist 2>/dev/null || true
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV PORT=3000
+
+# Expose port
+EXPOSE 3000
+
+# Switch to non-root user
+USER nodeuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD node healthcheck.js || exit 1
+
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["dumb-init", "--"]
+
+# Start the application
+CMD ["node", "src/server.js"]
