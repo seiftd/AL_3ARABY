@@ -1,0 +1,1359 @@
+openapi: 3.0.3
+info:
+  title: Al-Arabi Service Marketplace API
+  description: |
+    Comprehensive API for the Al-Arabi Arabic-first service marketplace platform.
+    
+    ## Features
+    - **Arabic-First Design**: RTL support and Arabic content management
+    - **Geyb Al-Arabi Wallet**: Digital wallet system with multi-currency support
+    - **Service Marketplace**: Full gig economy platform for buyers and sellers
+    - **Payment Gateways**: BaridiMob, STC Pay, Fawry, Telr, Stripe integration
+    - **Auto-Contracts**: PDF generation with e-signature workflow
+    - **Real-time Communication**: WebSocket support for messaging and notifications
+    
+    ## Authentication
+    The API uses JWT Bearer tokens for authentication. Include the token in the Authorization header:
+    ```
+    Authorization: Bearer <your-jwt-token>
+    ```
+    
+    ## Rate Limiting
+    - **General API calls**: 100 requests per 15 minutes
+    - **OTP generation**: 5 requests per 15 minutes
+    - **Login attempts**: 10 requests per 15 minutes
+    
+    ## Error Handling
+    All error responses follow a consistent format with bilingual messages (Arabic/English).
+    
+  version: 1.0.0
+  contact:
+    name: Al-Arabi API Support
+    email: api-support@al-arabi.com
+    url: https://docs.al-arabi.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: https://al-arabi.com/terms
+
+servers:
+  - url: https://api.al-arabi.com/v1
+    description: Production server
+  - url: https://staging-api.al-arabi.com/v1
+    description: Staging server
+  - url: http://localhost:3001/api/v1
+    description: Development server
+
+security:
+  - BearerAuth: []
+
+paths:
+  # Authentication Endpoints
+  /auth/generate-otp:
+    post:
+      tags: [Authentication]
+      summary: Generate OTP for phone verification
+      description: Sends a 6-digit OTP to the specified phone number for various purposes
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, purpose]
+              properties:
+                phone:
+                  type: string
+                  pattern: '^\+[1-9]\d{1,14}$'
+                  example: '+966501234567'
+                  description: Phone number in international format
+                purpose:
+                  type: string
+                  enum: [registration, login, password_reset, phone_verification, wallet_access]
+                  example: registration
+                  description: Purpose of the OTP
+      responses:
+        200:
+          description: OTP sent successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        400:
+          $ref: '#/components/responses/BadRequest'
+        409:
+          description: Phone number already registered (for registration purpose)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        429:
+          $ref: '#/components/responses/RateLimit'
+
+  /auth/register:
+    post:
+      tags: [Authentication]
+      summary: Register new user
+      description: Register a new user with OTP verification
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, otp_code, first_name, last_name, user_type]
+              properties:
+                phone:
+                  type: string
+                  pattern: '^\+[1-9]\d{1,14}$'
+                  example: '+966501234567'
+                otp_code:
+                  type: string
+                  pattern: '^\d{6}$'
+                  example: '123456'
+                first_name:
+                  type: string
+                  minLength: 2
+                  maxLength: 50
+                  example: 'أحمد'
+                last_name:
+                  type: string
+                  minLength: 2
+                  maxLength: 50
+                  example: 'المحمد'
+                first_name_ar:
+                  type: string
+                  example: 'أحمد'
+                last_name_ar:
+                  type: string
+                  example: 'المحمد'
+                email:
+                  type: string
+                  format: email
+                  example: 'ahmed@example.com'
+                user_type:
+                  type: string
+                  enum: [buyer, seller, both]
+                  example: 'both'
+                country:
+                  type: string
+                  pattern: '^[A-Z]{2}$'
+                  example: 'SA'
+                city:
+                  type: string
+                  example: 'الرياض'
+                preferred_language:
+                  type: string
+                  enum: [ar, en]
+                  default: ar
+      responses:
+        201:
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user:
+                            $ref: '#/components/schemas/User'
+                          access_token:
+                            type: string
+                          refresh_token:
+                            type: string
+                          wallet:
+                            $ref: '#/components/schemas/WalletAccount'
+        400:
+          $ref: '#/components/responses/BadRequest'
+        409:
+          description: Phone number already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Login user
+      description: Authenticate user with phone and OTP
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, otp_code]
+              properties:
+                phone:
+                  type: string
+                  pattern: '^\+[1-9]\d{1,14}$'
+                  example: '+966501234567'
+                otp_code:
+                  type: string
+                  pattern: '^\d{6}$'
+                  example: '123456'
+      responses:
+        200:
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user:
+                            $ref: '#/components/schemas/User'
+                          access_token:
+                            type: string
+                          refresh_token:
+                            type: string
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh access token
+      description: Get a new access token using refresh token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        200:
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          access_token:
+                            type: string
+                          refresh_token:
+                            type: string
+        401:
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get current user profile
+      description: Get authenticated user's profile information
+      responses:
+        200:
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user:
+                            $ref: '#/components/schemas/User'
+        401:
+          $ref: '#/components/responses/Unauthorized'
+
+  # Service Marketplace Endpoints
+  /services:
+    get:
+      tags: [Services]
+      summary: Browse services
+      description: Get list of services with filtering and search capabilities
+      security: []
+      parameters:
+        - name: category
+          in: query
+          description: Filter by category ID
+          schema:
+            type: string
+            format: uuid
+        - name: min_price
+          in: query
+          description: Minimum price filter
+          schema:
+            type: number
+            minimum: 0
+        - name: max_price
+          in: query
+          description: Maximum price filter
+          schema:
+            type: number
+            minimum: 0
+        - name: delivery_time
+          in: query
+          description: Maximum delivery time in days
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+        - name: seller_level
+          in: query
+          description: Filter by seller level
+          schema:
+            type: string
+            enum: [new, level_1, level_2, top_rated]
+        - name: location
+          in: query
+          description: Filter by service location
+          schema:
+            type: string
+        - name: search
+          in: query
+          description: Search in title, description, and tags
+          schema:
+            type: string
+        - name: sort
+          in: query
+          description: Sort order
+          schema:
+            type: string
+            enum: [price_asc, price_desc, rating, popular, newest]
+            default: popular
+        - name: page
+          in: query
+          description: Page number for pagination
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Number of items per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        200:
+          description: Services retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          services:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Service'
+                          pagination:
+                            $ref: '#/components/schemas/Pagination'
+                          filters_applied:
+                            type: object
+        400:
+          $ref: '#/components/responses/BadRequest'
+
+    post:
+      tags: [Services]
+      summary: Create new service
+      description: Create a new service listing (seller only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServiceRequest'
+      responses:
+        201:
+          description: Service created successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          service:
+                            $ref: '#/components/schemas/Service'
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthorized'
+        403:
+          $ref: '#/components/responses/Forbidden'
+
+  /services/{id}:
+    get:
+      tags: [Services]
+      summary: Get service details
+      description: Get detailed information about a specific service
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Service ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Service details retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          service:
+                            $ref: '#/components/schemas/ServiceDetail'
+                          reviews:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Review'
+                          similar_services:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Service'
+        404:
+          $ref: '#/components/responses/NotFound'
+
+  /services/{id}/order:
+    post:
+      tags: [Services]
+      summary: Create order for service
+      description: Place an order for a specific service
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Service ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requirements]
+              properties:
+                package_id:
+                  type: string
+                  format: uuid
+                  description: Optional package selection
+                requirements:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      question:
+                        type: string
+                      answer:
+                        type: string
+                additional_notes:
+                  type: string
+                expected_delivery:
+                  type: string
+                  format: date-time
+      responses:
+        201:
+          description: Order created successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          order:
+                            $ref: '#/components/schemas/Order'
+                          contract_id:
+                            type: string
+                            format: uuid
+                          payment_required:
+                            type: boolean
+                          next_step:
+                            type: string
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthorized'
+        404:
+          $ref: '#/components/responses/NotFound'
+
+  # Wallet Endpoints
+  /wallet:
+    get:
+      tags: [Wallet]
+      summary: Get wallet details
+      description: Get current user's wallet information and balance
+      responses:
+        200:
+          description: Wallet details retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WalletAccount'
+        401:
+          $ref: '#/components/responses/Unauthorized'
+        404:
+          description: Wallet not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /wallet/topup:
+    post:
+      tags: [Wallet]
+      summary: Top up wallet
+      description: Add funds to wallet through payment gateway
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, currency, payment_gateway]
+              properties:
+                amount:
+                  type: number
+                  minimum: 5
+                  example: 100
+                currency:
+                  type: string
+                  enum: [SAR, AED, EGP, DZD, USD]
+                  example: SAR
+                payment_gateway:
+                  type: string
+                  enum: [baridimob, stcpay, fawry, telr, stripe]
+                  example: stcpay
+                return_url:
+                  type: string
+                  format: uri
+                  example: 'https://app.al-arabi.com/wallet/success'
+      responses:
+        200:
+          description: Top-up initiated successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          transaction_id:
+                            type: string
+                            format: uuid
+                          payment_url:
+                            type: string
+                            format: uri
+                          gateway_transaction_id:
+                            type: string
+                          expires_at:
+                            type: string
+                            format: date-time
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthorized'
+
+  /wallet/transfer:
+    post:
+      tags: [Wallet]
+      summary: Transfer money
+      description: Transfer money to another user's wallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recipient_wallet_number, amount, currency, wallet_pin]
+              properties:
+                recipient_wallet_number:
+                  type: string
+                  pattern: '^GYB\d{11}$'
+                  example: 'GYB12345678901'
+                amount:
+                  type: number
+                  minimum: 1
+                  example: 50
+                currency:
+                  type: string
+                  enum: [SAR, AED, EGP, DZD, USD]
+                  example: SAR
+                description:
+                  type: string
+                  maxLength: 200
+                  example: 'Payment for services'
+                wallet_pin:
+                  type: string
+                  pattern: '^\d{4,6}$'
+                  example: '1234'
+      responses:
+        200:
+          description: Transfer completed successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Transaction'
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthorized'
+
+  # Payment Endpoints
+  /payments/process:
+    post:
+      tags: [Payments]
+      summary: Process payment
+      description: Process payment for an order through selected gateway
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order_id, payment_gateway]
+              properties:
+                order_id:
+                  type: string
+                  format: uuid
+                payment_gateway:
+                  type: string
+                  enum: [baridimob, stcpay, fawry, telr, stripe, geyb]
+                customer_email:
+                  type: string
+                  format: email
+                customer_name:
+                  type: string
+                return_url:
+                  type: string
+                  format: uri
+                wallet_pin:
+                  type: string
+                  description: Required for Geyb wallet payments
+      responses:
+        200:
+          description: Payment initiated successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          transaction_id:
+                            type: string
+                            format: uuid
+                          payment_url:
+                            type: string
+                            format: uri
+                          gateway_transaction_id:
+                            type: string
+                          status:
+                            type: string
+                            enum: [pending, processing, completed, failed]
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthorized'
+
+  # Contract Endpoints
+  /contracts:
+    get:
+      tags: [Contracts]
+      summary: List user contracts
+      description: Get list of contracts for the authenticated user
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        200:
+          description: Contracts retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          contracts:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Contract'
+                          pagination:
+                            $ref: '#/components/schemas/Pagination'
+        401:
+          $ref: '#/components/responses/Unauthorized'
+
+  /contracts/{id}:
+    get:
+      tags: [Contracts]
+      summary: Get contract details
+      description: Get detailed contract information with download URL
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contract ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Contract details retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ContractDetail'
+        401:
+          $ref: '#/components/responses/Unauthorized'
+        403:
+          $ref: '#/components/responses/Forbidden'
+        404:
+          $ref: '#/components/responses/NotFound'
+
+  /contracts/{id}/sign:
+    post:
+      tags: [Contracts]
+      summary: Sign contract
+      description: Digitally sign a contract
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contract ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [signature_data]
+              properties:
+                signature_data:
+                  type: object
+                  properties:
+                    signature_image:
+                      type: string
+                      description: Base64 encoded signature image
+                    ip_address:
+                      type: string
+                      format: ipv4
+                    user_agent:
+                      type: string
+                    timestamp:
+                      type: string
+                      format: date-time
+      responses:
+        200:
+          description: Contract signed successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Contract'
+        400:
+          $ref: '#/components/responses/BadRequest'
+        401:
+          $ref: '#/components/responses/Unauthorized'
+        403:
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: 'Operation completed successfully'
+        message_ar:
+          type: string
+          example: 'تمت العملية بنجاح'
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: 'An error occurred'
+        message_ar:
+          type: string
+          example: 'حدث خطأ'
+        error_code:
+          type: string
+          example: 'VALIDATION_ERROR'
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        first_name_ar:
+          type: string
+        last_name_ar:
+          type: string
+        display_name:
+          type: string
+        avatar_url:
+          type: string
+          format: uri
+        user_type:
+          type: string
+          enum: [buyer, seller, both]
+        role:
+          type: string
+          enum: [user, admin, super_admin]
+        seller_level:
+          type: string
+          enum: [new, level_1, level_2, top_rated]
+        is_verified:
+          type: boolean
+        is_online:
+          type: boolean
+        country:
+          type: string
+        city:
+          type: string
+        city_ar:
+          type: string
+        preferred_language:
+          type: string
+          enum: [ar, en]
+        average_rating:
+          type: number
+        total_reviews:
+          type: integer
+        orders_completed:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    Service:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        seller_id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        title_ar:
+          type: string
+        description:
+          type: string
+        description_ar:
+          type: string
+        starting_price:
+          type: number
+        currency:
+          type: string
+        delivery_time:
+          type: integer
+        thumbnail_url:
+          type: string
+          format: uri
+        average_rating:
+          type: number
+        total_reviews:
+          type: integer
+        seller_info:
+          type: object
+          properties:
+            first_name:
+              type: string
+            seller_level:
+              type: string
+            average_rating:
+              type: number
+            is_online:
+              type: boolean
+        is_favorited:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    ServiceDetail:
+      allOf:
+        - $ref: '#/components/schemas/Service'
+        - type: object
+          properties:
+            tags:
+              type: array
+              items:
+                type: string
+            gallery_urls:
+              type: array
+              items:
+                type: string
+                format: uri
+            requirements:
+              type: array
+              items:
+                type: object
+            faqs:
+              type: array
+              items:
+                type: object
+            packages:
+              type: array
+              items:
+                $ref: '#/components/schemas/ServicePackage'
+            seller_skills:
+              type: array
+              items:
+                type: object
+            can_contact:
+              type: boolean
+            can_order:
+              type: boolean
+
+    ServicePackage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        package_type:
+          type: string
+          enum: [basic, standard, premium]
+        name:
+          type: string
+        name_ar:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+        delivery_time:
+          type: integer
+        revisions_included:
+          type: integer
+        features:
+          type: array
+          items:
+            type: string
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        order_number:
+          type: string
+        buyer_id:
+          type: string
+          format: uuid
+        seller_id:
+          type: string
+          format: uuid
+        service_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        total_amount:
+          type: number
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [pending, active, delivered, completed, cancelled, disputed]
+        payment_status:
+          type: string
+          enum: [pending, paid, held, released, refunded]
+        expected_delivery:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    WalletAccount:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        wallet_number:
+          type: string
+        balance_sar:
+          type: number
+        balance_aed:
+          type: number
+        balance_egp:
+          type: number
+        balance_dzd:
+          type: number
+        balance_usd:
+          type: number
+        total_balance_sar:
+          type: number
+        is_verified:
+          type: boolean
+        kyc_status:
+          type: string
+          enum: [pending, verified, rejected]
+        daily_limit:
+          type: number
+        monthly_limit:
+          type: number
+        recent_transactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transaction'
+        qr_code:
+          type: string
+          description: Base64 encoded QR code
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        transaction_number:
+          type: string
+        transaction_type:
+          type: string
+          enum: [order_payment, wallet_topup, wallet_transfer, withdrawal, refund, commission]
+        amount:
+          type: number
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, completed, failed, cancelled]
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Contract:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        contract_number:
+          type: string
+        buyer_id:
+          type: string
+          format: uuid
+        seller_id:
+          type: string
+          format: uuid
+        order_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        status:
+          type: string
+          enum: [draft, pending_signatures, active, completed, terminated]
+        buyer_signed:
+          type: boolean
+        seller_signed:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    ContractDetail:
+      allOf:
+        - $ref: '#/components/schemas/Contract'
+        - type: object
+          properties:
+            terms_and_conditions:
+              type: string
+            payment_terms:
+              type: string
+            deliverables:
+              type: string
+            pdf_url:
+              type: string
+              format: uri
+            download_url:
+              type: string
+              format: uri
+              description: Signed URL for PDF download
+            buyer_info:
+              type: object
+            seller_info:
+              type: object
+
+    Review:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        reviewer_id:
+          type: string
+          format: uuid
+        overall_rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        title:
+          type: string
+        content:
+          type: string
+        reviewer_name:
+          type: string
+        reviewer_avatar:
+          type: string
+          format: uri
+        created_at:
+          type: string
+          format: date-time
+
+    CreateServiceRequest:
+      type: object
+      required: [title, description, category_id, starting_price, currency, delivery_time, tags, languages_offered]
+      properties:
+        title:
+          type: string
+          minLength: 10
+          maxLength: 200
+        title_ar:
+          type: string
+          minLength: 10
+          maxLength: 200
+        description:
+          type: string
+          minLength: 50
+          maxLength: 2000
+        description_ar:
+          type: string
+        category_id:
+          type: string
+          format: uuid
+        starting_price:
+          type: number
+          minimum: 5
+        currency:
+          type: string
+          enum: [SAR, AED, EGP, DZD, USD]
+        delivery_time:
+          type: integer
+          minimum: 1
+          maximum: 365
+        revisions_included:
+          type: integer
+          minimum: 0
+          maximum: 10
+          default: 1
+        tags:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: string
+        tags_ar:
+          type: array
+          items:
+            type: string
+        service_location:
+          type: string
+        languages_offered:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        requirements:
+          type: array
+          items:
+            type: object
+        faqs:
+          type: array
+          items:
+            type: object
+        packages:
+          type: array
+          items:
+            type: object
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        total_pages:
+          type: integer
+
+  responses:
+    BadRequest:
+      description: Bad request - validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Unauthorized:
+      description: Unauthorized - authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Forbidden:
+      description: Forbidden - insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    RateLimit:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+tags:
+  - name: Authentication
+    description: User authentication and authorization
+  - name: Services
+    description: Service marketplace operations
+  - name: Wallet
+    description: Geyb Al-Arabi digital wallet
+  - name: Payments
+    description: Payment processing and gateways
+  - name: Contracts
+    description: Contract management and e-signatures
